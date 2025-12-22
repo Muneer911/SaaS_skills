@@ -7,6 +7,151 @@ description: Implements standard Supabase authentication flows including signup,
 
 This skill provides comprehensive guidelines for implementing authentication using Supabase, covering all authentication patterns, security practices, and environment configuration.
 
+## 🚨 CRITICAL REQUIREMENTS - MUST READ FIRST
+
+### Package Versions - MANDATORY (Security Critical)
+
+**✅ REQUIRED VERSIONS (Latest Stable):**
+```json
+{
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",      // ✅ Latest v2
+    "@supabase/ssr": "^0.1.0",               // ✅ Latest SSR package
+    "next": "^14.1.0"                        // ✅ Next.js 14+
+  }
+}
+```
+
+**❌ DEPRECATED PACKAGES - DO NOT USE:**
+```json
+{
+  "@supabase/auth-helpers-nextjs": "...",   // ❌ DEPRECATED
+  "@supabase/auth-helpers-react": "...",    // ❌ DEPRECATED  
+  "@supabase/auth-ui-react": "..."          // ❌ Optional, not required
+}
+```
+
+**🔒 Security Rule:**
+- Always use `@supabase/ssr` for Next.js 13+ App Router
+- Never use deprecated `auth-helpers` packages
+- Update packages monthly: `npm update @supabase/supabase-js @supabase/ssr`
+
+### Next.js 14 Server Actions - MANDATORY PATTERN
+
+**❌ ANTI-PATTERN - NEVER DO THIS:**
+```typescript
+// ❌ WRONG - Server action inside client component
+'use client';
+
+export default function LoginPage() {
+  async function login(formData: FormData) {
+    'use server';  // ❌ Mixed directives cause issues
+    // ...
+  }
+}
+```
+
+**✅ REQUIRED PATTERN - ALWAYS USE THIS:**
+```typescript
+// app/actions/auth.ts
+'use server';  // ✅ Dedicated file for all auth actions
+
+import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+
+export async function loginAction(formData: FormData) {
+  const supabase = await createClient()
+  
+  const data = {
+    email: formData.get('email') as string,
+    password: formData.get('password') as string,
+  }
+
+  const { error } = await supabase.auth.signInWithPassword(data)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  redirect('/dashboard')
+}
+
+export async function signUpAction(formData: FormData) {
+  const supabase = await createClient()
+  
+  const data = {
+    email: formData.get('email') as string,
+    password: formData.get('password') as string,
+    options: {
+      data: {
+        full_name: formData.get('full_name') as string,
+      },
+    },
+  }
+
+  const { error } = await supabase.auth.signUp(data)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  redirect('/auth/confirm')
+}
+
+export async function logoutAction() {
+  const supabase = await createClient()
+  await supabase.auth.signOut()
+  redirect('/login')
+}
+
+// app/(auth)/login/page.tsx
+'use client';  // ✅ Separate client component file
+
+import { loginAction } from '@/app/actions/auth'
+import { useState } from 'react'
+
+export default function LoginPage() {
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <form action={async (formData) => {
+      const result = await loginAction(formData)
+      if (result?.error) {
+        setError(result.error)
+      }
+    }}>
+      {/* Form fields */}
+    </form>
+  )
+}
+```
+
+**📁 MANDATORY File Structure:**
+```
+app/
+├── actions/
+│   └── auth.ts              ✅ All auth server actions here
+├── lib/
+│   └── supabase/
+│       ├── client.ts         ✅ Browser client
+│       ├── server.ts         ✅ Server client  
+│       └── middleware.ts     ✅ Middleware client
+├── (auth)/
+│   ├── login/
+│   │   └── page.tsx         ✅ Client component
+│   ├── register/
+│   │   └── page.tsx         ✅ Client component
+│   └── callback/
+│       └── route.ts         ✅ Route handler
+└── middleware.ts            ✅ Session refresh
+```
+
+**🔒 RULES:**
+1. All auth server actions → `app/actions/auth.ts` with `'use server'`
+2. All auth pages → Client components with `'use client'`
+3. NO mixing of directives in same file
+4. Use `async/await` for all Supabase calls
+
 ## Initial Setup Checklist
 
 ### Environment Variables
@@ -201,14 +346,16 @@ export const config = {
 
 ### 1. Sign Up Flow
 
+**✅ REQUIRED IMPLEMENTATION:**
+
 ```typescript
-// app/auth/signup/actions.ts
-'use server'
+// app/actions/auth.ts
+'use server';
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
-export async function signUp(formData: FormData) {
+export async function signUpAction(formData: FormData) {
   const supabase = await createClient()
 
   const data = {
@@ -228,83 +375,126 @@ export async function signUp(formData: FormData) {
     return { error: error.message }
   }
 
-  // Redirect to confirmation page
   redirect('/auth/confirm')
 }
 ```
 
-**Sign Up Component:**
+**Sign Up Component (REQUIRED PATTERN):**
 
 ```tsx
-// app/auth/signup/page.tsx
-'use client'
+// app/(auth)/register/page.tsx
+'use client';
 
-import { signUp } from './actions'
+import { signUpAction } from '@/app/actions/auth'
 import { useState } from 'react'
 
-export default function SignUp() {
+export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
   return (
-    <form action={async (formData) => {
-      const result = await signUp(formData)
-      if (result?.error) {
-        setError(result.error)
-      }
-    }}>
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
-          {error}
-        </div>
-      )}
-      
-      <div>
-        <label htmlFor="full_name">Full Name</label>
-        <input
-          id="full_name"
-          name="full_name"
-          type="text"
-          required
-        />
-      </div>
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <h1 className="text-2xl font-bold text-start mb-6">
+          Create Account
+        </h1>
 
-      <div>
-        <label htmlFor="email">Email</label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-        />
-      </div>
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-4 text-start">
+            {error}
+          </div>
+        )}
+        
+        <form 
+          action={async (formData) => {
+            setLoading(true)
+            const result = await signUpAction(formData)
+            setLoading(false)
+            
+            if (result?.error) {
+              setError(result.error)
+            }
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label 
+              htmlFor="full_name" 
+              className="block text-start mb-2 font-medium"
+            >
+              Full Name
+            </label>
+            <input
+              id="full_name"
+              name="full_name"
+              type="text"
+              dir="auto"
+              className="w-full ps-4 pe-4 py-3 text-start rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              placeholder="Enter your full name"
+              required
+            />
+          </div>
 
-      <div>
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          minLength={8}
-        />
-      </div>
+          <div>
+            <label 
+              htmlFor="email" 
+              className="block text-start mb-2 font-medium"
+            >
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              dir="auto"
+              className="w-full ps-4 pe-4 py-3 text-start rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              placeholder="Enter your email"
+              required
+            />
+          </div>
 
-      <button type="submit">Sign Up</button>
-    </form>
+          <div>
+            <label 
+              htmlFor="password" 
+              className="block text-start mb-2 font-medium"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              dir="auto"
+              className="w-full ps-4 pe-4 py-3 text-start rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              placeholder="Create a password"
+              required
+              minLength={8}
+            />
+          </div>
+
+          <button 
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Creating account...' : 'Sign Up'}
+          </button>
+        </form>
+      </div>
+    </div>
   )
 }
 ```
 
 ### 2. Login Flow
 
+**✅ REQUIRED IMPLEMENTATION:**
+
 ```typescript
-// app/auth/login/actions.ts
-'use server'
+// app/actions/auth.ts (add to existing file)
+'use server';
 
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-
-export async function login(formData: FormData) {
+export async function loginAction(formData: FormData) {
   const supabase = await createClient()
 
   const data = {
@@ -322,17 +512,119 @@ export async function login(formData: FormData) {
 }
 ```
 
+**Login Component (REQUIRED PATTERN):**
+
+```tsx
+// app/(auth)/login/page.tsx
+'use client';
+
+import { loginAction } from '@/app/actions/auth'
+import { useState } from 'react'
+import Link from 'next/link'
+
+export default function LoginPage() {
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <h1 className="text-2xl font-bold text-start mb-6">
+          Sign In
+        </h1>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-4 text-start">
+            {error}
+          </div>
+        )}
+        
+        <form 
+          action={async (formData) => {
+            setLoading(true)
+            const result = await loginAction(formData)
+            setLoading(false)
+            
+            if (result?.error) {
+              setError(result.error)
+            }
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label 
+              htmlFor="email" 
+              className="block text-start mb-2 font-medium"
+            >
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              dir="auto"
+              className="w-full ps-4 pe-4 py-3 text-start rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              placeholder="Enter your email"
+              required
+            />
+          </div>
+
+          <div>
+            <label 
+              htmlFor="password" 
+              className="block text-start mb-2 font-medium"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              dir="auto"
+              className="w-full ps-4 pe-4 py-3 text-start rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              placeholder="Enter your password"
+              required
+              minLength={8}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Link 
+              href="/auth/forgot-password"
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
+
+          <button 
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+
+          <p className="text-center text-sm text-gray-600">
+            Don't have an account?{' '}
+            <Link href="/register" className="text-blue-600 hover:underline">
+              Sign up
+            </Link>
+          </p>
+        </form>
+      </div>
+    </div>
+  )
+}
+```
+
 ### 3. Password Reset Flow
 
-**Request Reset:**
-
 ```typescript
-// app/auth/forgot-password/actions.ts
-'use server'
+// app/actions/auth.ts (add to existing file)
+'use server';
 
-import { createClient } from '@/lib/supabase/server'
-
-export async function requestPasswordReset(formData: FormData) {
+export async function requestPasswordResetAction(formData: FormData) {
   const supabase = await createClient()
   const email = formData.get('email') as string
 
@@ -346,18 +638,8 @@ export async function requestPasswordReset(formData: FormData) {
 
   return { success: true }
 }
-```
 
-**Reset Password:**
-
-```typescript
-// app/auth/reset-password/actions.ts
-'use server'
-
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-
-export async function resetPassword(formData: FormData) {
+export async function resetPasswordAction(formData: FormData) {
   const supabase = await createClient()
   const password = formData.get('password') as string
 
@@ -583,6 +865,19 @@ export async function handleAuthError(error: any) {
 
 ## Testing Checklist
 
+**🚨 CRITICAL CHECKS - Must Pass All:**
+- [ ] Using `@supabase/ssr` package (NOT deprecated `auth-helpers`)
+- [ ] Package versions: `@supabase/supabase-js` >= 2.39.0
+- [ ] All server actions in `app/actions/auth.ts` with `'use server'`
+- [ ] Auth pages use `'use client'` (login, register)
+- [ ] NO files with both `'use client'` AND `'use server'`
+- [ ] All form labels have `block text-start` classes
+- [ ] All form inputs have `dir="auto"` attribute
+- [ ] All form inputs use `ps-*` `pe-*` (NOT `px-*`, `pl-*`, `pr-*`)
+- [ ] Error messages displayed with proper RTL alignment
+- [ ] Loading states implemented for all forms
+
+**✅ Functional Tests:**
 - [ ] Sign up with valid credentials works
 - [ ] Sign up with duplicate email shows appropriate error
 - [ ] Sign up with weak password shows validation error
@@ -600,6 +895,25 @@ export async function handleAuthError(error: any) {
 - [ ] Session expires after configured timeout
 - [ ] Multiple simultaneous sessions handled correctly
 - [ ] RLS policies prevent unauthorized data access
+
+**🔍 Code Quality Checks:**
+```bash
+# Verify no deprecated packages
+grep -r "@supabase/auth-helpers" package.json  # Must be 0 results
+
+# Verify correct package
+grep -r "@supabase/ssr" package.json           # Must find it
+
+# Verify no mixed directives
+grep -l "'use client'" app/actions/*.ts        # Must be 0 results
+grep -l "'use server'" app/\(auth\)/**/*.tsx   # Must be 0 results
+
+# Verify RTL classes
+grep -r "px-" app/\(auth\)                     # Must be 0 results
+grep -r "pl-" app/\(auth\)                     # Must be 0 results
+grep -r "pr-" app/\(auth\)                     # Must be 0 results
+grep -r "text-left" app/\(auth\)               # Must be 0 results
+```
 
 ## Common Pitfalls to Avoid
 
