@@ -7,6 +7,94 @@ description: Implements right-to-left (RTL) UI patterns for Arabic interfaces us
 
 This skill provides comprehensive guidelines for building right-to-left (RTL) user interfaces, primarily targeting Arabic language support with Tailwind CSS.
 
+## 🚨 CRITICAL REQUIREMENTS - READ FIRST
+
+### MANDATORY Rules (Application Will Break if Violated)
+
+**❌ NEVER USE THESE CLASSES - WILL CAUSE RTL BUGS:**
+```tsx
+// BANNED - Physical properties
+ml-*, mr-*, pl-*, pr-*        // ❌ NEVER
+left-*, right-*                // ❌ NEVER  
+text-left, text-right         // ❌ NEVER
+rounded-l-*, rounded-r-*      // ❌ NEVER
+border-l-*, border-r-*        // ❌ NEVER
+```
+
+**✅ ALWAYS USE THESE INSTEAD - MANDATORY:**
+```tsx
+// REQUIRED - Logical properties
+ms-*, me-*                    // ✅ REQUIRED (margin-inline-start/end)
+ps-*, pe-*                    // ✅ REQUIRED (padding-inline-start/end)
+start-*, end-*                // ✅ REQUIRED (positioning)
+text-start, text-end          // ✅ REQUIRED (alignment)
+rounded-s-*, rounded-e-*      // ✅ REQUIRED (border-radius)
+border-s-*, border-e-*        // ✅ REQUIRED (borders)
+```
+
+**⚠️ ZERO TOLERANCE POLICY:**
+- Every `ml-*` must be `ms-*`
+- Every `pl-*` must be `ps-*`  
+- Every `text-left` must be `text-start`
+- **NO EXCEPTIONS** - Even for "temporary" code
+
+### Next.js 14 Server Actions - MANDATORY PATTERN
+
+**❌ ANTI-PATTERN - NEVER DO THIS:**
+```tsx
+// app/login/page.tsx
+'use client';
+
+export default function LoginPage() {
+  // ❌ WRONG - Server action inside client component file
+  async function loginAction(formData: FormData) {
+    'use server';  // ❌ Mixed directives in same file
+    // ...
+  }
+  
+  return <form action={loginAction}>...</form>
+}
+```
+
+**✅ REQUIRED PATTERN - ALWAYS DO THIS:**
+```tsx
+// app/actions/login.ts
+'use server';  // ✅ Dedicated server action file
+
+export async function loginAction(formData: FormData) {
+  const supabase = await createClient()
+  // ... implementation
+}
+
+// app/login/page.tsx  
+'use client';  // ✅ Separate client component file
+
+import { loginAction } from '@/app/actions/login'
+
+export default function LoginPage() {
+  return <form action={loginAction}>...</form>
+}
+```
+
+**📁 REQUIRED File Structure:**
+```
+app/
+├── actions/              ✅ MANDATORY - All server actions here
+│   ├── login.ts         ('use server')
+│   ├── register.ts      ('use server')
+│   └── ...
+├── (auth)/
+│   ├── login/
+│   │   └── page.tsx     ('use client')
+│   └── register/
+│       └── page.tsx     ('use client')
+```
+
+**🔒 RULE: One directive per file**
+- Files with `'use server'` → Only server code
+- Files with `'use client'` → Only client code
+- **NEVER mix both in same file**
+
 ## Core Principles
 
 ### 1. Directional Layout System
@@ -153,25 +241,69 @@ html[dir="rtl"] {
 
 ### 6. Forms and Inputs
 
+**🚨 MANDATORY Form Pattern:**
+
 ```jsx
-// Text inputs automatically align based on dir attribute
-<input 
-  type="text" 
-  className="w-full ps-4 pe-10" // Padding for icons
-  dir="auto" // Detects input language
-/>
+// ✅ REQUIRED - Complete form input with RTL support
+<div className="space-y-6">
+  <div>
+    <label 
+      htmlFor="email" 
+      className="block text-start mb-2 font-medium"  // ✅ block + text-start
+    >
+      {locale === 'ar' ? 'البريد الإلكتروني' : 'Email'}
+    </label>
+    <input
+      id="email"
+      name="email"
+      type="email"
+      dir="auto"  // ✅ MANDATORY - Detects input direction
+      className="w-full ps-4 pe-4 py-3 text-start rounded-lg border"  // ✅ ps-4 pe-4, NOT px-4
+      placeholder={locale === 'ar' ? 'أدخل بريدك الإلكتروني' : 'Enter your email'}
+      required
+    />
+  </div>
+  
+  <div>
+    <label 
+      htmlFor="password" 
+      className="block text-start mb-2 font-medium"
+    >
+      {locale === 'ar' ? 'كلمة المرور' : 'Password'}
+    </label>
+    <input
+      id="password"
+      name="password"
+      type="password"
+      dir="auto"  // ✅ MANDATORY
+      className="w-full ps-4 pe-4 py-3 text-start rounded-lg border"  // ✅ Logical padding
+      placeholder={locale === 'ar' ? 'أدخل كلمة المرور' : 'Enter password'}
+      required
+    />
+  </div>
+  
+  <button 
+    type="submit"
+    className="w-full py-3 bg-primary text-white rounded-lg"
+  >
+    {locale === 'ar' ? 'تسجيل الدخول' : 'Sign In'}
+  </button>
+</div>
 
-// Placeholder text
-<input 
-  placeholder={locale === 'ar' ? 'ابحث هنا...' : 'Search here...'}
-  className="placeholder:text-end rtl:text-end"
-/>
-
-// Labels
-<label className="block text-start mb-2">
-  {locale === 'ar' ? 'البريد الإلكتروني' : 'Email'}
-</label>
+// ❌ WRONG - Common mistakes
+<input className="px-4" />              // ❌ NOT px-4
+<input className="pl-4 pr-10" />       // ❌ NOT pl-/pr-
+<label className="text-left" />        // ❌ NOT text-left
+<input />                               // ❌ Missing dir="auto"
 ```
+
+**📋 Form Input Checklist (MANDATORY):**
+- [ ] All labels have `className="block text-start"`
+- [ ] All inputs have `dir="auto"` attribute
+- [ ] All inputs use `ps-*` and `pe-*` (NEVER `px-*`, `pl-*`, `pr-*`)
+- [ ] All inputs have `text-start` class
+- [ ] All placeholders are localized
+- [ ] Button text is localized
 
 ### 7. Positioning and Absolute Elements
 
@@ -271,19 +403,52 @@ html[dir="rtl"] {
 
 Before marking RTL implementation as complete:
 
-- [ ] All physical direction classes replaced with logical equivalents
+**🚨 CRITICAL - Zero Tolerance Items:**
+- [ ] **ZERO instances of `ml-*`, `mr-*`, `pl-*`, `pr-*` in entire codebase**
+- [ ] **ZERO instances of `left-*`, `right-*` for positioning**
+- [ ] **ZERO instances of `text-left`, `text-right`**
+- [ ] **ZERO instances of `rounded-l-*`, `rounded-r-*`**
+- [ ] **ZERO instances of `border-l-*`, `border-r-*`**
+- [ ] **ALL server actions in separate `app/actions/` files**
+- [ ] **NO files with both 'use client' and 'use server'**
+
+**✅ Required Implementations:**
 - [ ] `dir="rtl"` and `lang="ar"` attributes set on `<html>` tag
+- [ ] All physical direction classes replaced with logical equivalents
 - [ ] Directional icons properly mirrored or rotated
 - [ ] Arabic font applied with appropriate line-height
 - [ ] NO `letter-spacing` on Arabic text
 - [ ] Form inputs have `dir="auto"` attribute
+- [ ] Form labels have `block text-start` classes
+- [ ] Form inputs use `ps-*` and `pe-*` (NOT `px-*`)
 - [ ] Navigation flows in correct direction
 - [ ] Dropdown menus and tooltips positioned correctly
 - [ ] Asymmetric spacing (margins, padding) uses logical properties
-- [ ] Border radius uses `rounded-s-*` / `rounded-e-*`
+- [ ] Tables use `text-start`/`text-end` (NEVER `text-left`/`text-right`)
 - [ ] Absolute positioned elements use `start-*` / `end-*`
 - [ ] Tested on actual RTL content (not just English text flipped)
 - [ ] Responsive breakpoints work in RTL mode
+
+**🔍 Code Search Commands (Run These):**
+```bash
+# Search for banned classes - ALL must return 0 results
+grep -r "ml-" src/
+grep -r "mr-" src/
+grep -r "pl-" src/  
+grep -r "pr-" src/
+grep -r "text-left" src/
+grep -r "text-right" src/
+grep -r "left-" src/
+grep -r "right-" src/
+
+# Search for correct classes - Should find many results
+grep -r "ms-" src/
+grep -r "me-" src/
+grep -r "ps-" src/
+grep -r "pe-" src/
+grep -r "text-start" src/
+grep -r "text-end" src/
+```
 
 ## Common Mistakes to Avoid
 
@@ -294,6 +459,9 @@ Before marking RTL implementation as complete:
 5. **Over-mirroring icons** - Play buttons should never mirror
 6. **Using physical properties "temporarily"** - Always use logical from the start
 7. **Testing only with flipped English** - Arabic has unique rendering needs
+8. **❌ Mixing 'use client' and 'use server' in same file** - Separate into different files
+9. **❌ Using `px-*` on form inputs** - Always use `ps-*` and `pe-*`
+10. **❌ Using `text-left` on tables** - Always use `text-start`
 
 ## Resources
 
