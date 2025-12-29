@@ -15,9 +15,9 @@ This skill provides comprehensive guidelines for implementing authentication usi
 ```json
 {
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",      // ✅ Latest v2
-    "@supabase/ssr": "^0.1.0",               // ✅ Latest SSR package
-    "next": "^14.1.0"                        // ✅ Next.js 14+
+    "@supabase/supabase-js": "^2.89.0",      
+    "@supabase/ssr": "^0.8.0",             
+    "next": "^16.1.1"                       
   }
 }
 ```
